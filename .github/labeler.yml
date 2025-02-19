@@ -22,10 +22,26 @@ code quality:
           - .pre-commit-config.yaml
           - pyproject.toml
 
-controllers:
+controller backend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/controllers/**
+
+controller mappings:
   - changed-files:
       - any-glob-to-any-file:
           - res/controllers/**
+
+developer experience:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/ISSUE_TEMPLATE/**
+          - .github/labeler.yml
+          - tools/**
+          - .pre-commit-config.yaml
+          - CODE_OF_CONDUCT.md
+          - CONTRIBUTING.md
+          - README.md
 
 analyzer:
   - changed-files:
@@ -101,6 +117,12 @@ preferences:
   - changed-files:
       - any-glob-to-any-file:
           - src/preferences/**
+
+qml:
+  - changed-files:
+      - any-glob-to-any-file:
+          - res/qml/**
+          - src/qml/**
 
 skins:
   - changed-files:

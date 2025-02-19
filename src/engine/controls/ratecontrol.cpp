@@ -34,6 +34,9 @@ RateControl::RateControl(const QString& group,
         UserSettingsPointer pConfig)
         : EngineControl(group, pConfig),
           m_pBpmControl(nullptr),
+          m_wrapAroundCount(0),
+          m_jumpPos(mixxx::audio::FramePos()),
+          m_targetPos(mixxx::audio::FramePos()),
           m_bTempStarted(false),
           m_tempRateRatio(0.0),
           m_dRateTempRampChange(0.0) {
@@ -162,19 +165,8 @@ RateControl::RateControl(const QString& group,
 
 
     m_pJog = new ControlObject(ConfigKey(group, "jog"));
-    m_pJogFilter = new Rotary();
     // FIXME: This should be dependent on sample rate/block size or something
-    m_pJogFilter->setFilterLength(25);
-
-//     // Update Internal Settings
-//     // Set Pitchbend Mode
-//     m_eRateRampMode = static_cast<RampMode>(
-//         getConfig()->getValue(ConfigKey("[Controls]","RateRamp"),
-//                               static_cast<int>(RampMode::Stepping)));
-
-//     // Set the Sensitivity
-//     m_iRateRampSensitivity =
-//             getConfig()->getValueString(ConfigKey("[Controls]","RateRampSensitivity")).toInt();
+    m_pJogFilter = new Rotary(25);
 
     m_pSyncMode = new ControlProxy(group, "sync_mode", this);
 }
@@ -391,14 +383,16 @@ SyncMode RateControl::getSyncMode() const {
     return syncModeFromDouble(m_pSyncMode->get());
 }
 
-double RateControl::calculateSpeed(double baserate, double speed, bool paused,
-                                   int iSamplesPerBuffer,
-                                   bool* pReportScratching,
-                                   bool* pReportReverse) {
+double RateControl::calculateSpeed(double baserate,
+        double speed,
+        bool paused,
+        std::size_t samplesPerBuffer,
+        bool* pReportScratching,
+        bool* pReportReverse) {
     *pReportScratching = false;
     *pReportReverse = false;
 
-    processTempRate(iSamplesPerBuffer);
+    processTempRate(samplesPerBuffer);
 
     double rate;
     const double searching = m_pRateSearch->get();
@@ -441,10 +435,10 @@ double RateControl::calculateSpeed(double baserate, double speed, bool paused,
                 // The buffer is playing, so calculate the buffer rate.
 
                 // There are four rate effects we apply: wheel, scratch, jog and temp.
-                // Wheel: a linear additive effect (no spring-back)
+                // Wheel:   a linear additive effect (no spring-back)
                 // Scratch: a rate multiplier
-                // Jog: a linear additive effect whose value is filtered (springs back)
-                // Temp: pitch bend
+                // Jog:     a linear additive effect whose value is filtered (springs back)
+                // Temp:    pitch bend
 
                 // New scratch behavior - overrides playback speed (and old behavior)
                 if (useScratch2Value) {
@@ -459,7 +453,17 @@ double RateControl::calculateSpeed(double baserate, double speed, bool paused,
         }
 
         double currentSample = frameInfo().currentPosition.toEngineSamplePos();
-        m_pScratchController->process(currentSample, rate, iSamplesPerBuffer, baserate);
+        // Let PositionScratchController also know if the play pos wrapped around
+        // (beatloop or track repeat) so it can correctly interpret the sample position delta.
+        m_pScratchController->process(currentSample,
+                rate,
+                samplesPerBuffer,
+                baserate,
+                m_wrapAroundCount,
+                m_jumpPos,
+                m_targetPos);
+        // Reset count after use.
+        m_wrapAroundCount = 0;
 
         // If waveform scratch is enabled, override all other controls
         if (m_pScratchController->isEnabled()) {
@@ -497,7 +501,7 @@ double RateControl::calculateSpeed(double baserate, double speed, bool paused,
     return rate;
 }
 
-void RateControl::processTempRate(const int bufferSamples) {
+void RateControl::processTempRate(const std::size_t bufferSamples) {
     // Code to handle temporary rate change buttons.
     // We support two behaviors, the standard ramped pitch bending
     // and pitch shift stepping, which is the old behavior.
@@ -602,4 +606,16 @@ bool RateControl::isReverseButtonPressed() {
         return m_pReverseButton->toBool();
     }
     return false;
+}
+
+void RateControl::notifyWrapAround(mixxx::audio::FramePos triggerPos,
+        mixxx::audio::FramePos targetPos) {
+    VERIFY_OR_DEBUG_ASSERT(triggerPos.isValid() && targetPos.isValid()) {
+        m_wrapAroundCount = 0;
+        // no need to reset the position, they're not used if count is 0.
+        return;
+    }
+    m_wrapAroundCount++;
+    m_jumpPos = triggerPos;
+    m_targetPos = targetPos;
 }

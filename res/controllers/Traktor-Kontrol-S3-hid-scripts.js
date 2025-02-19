@@ -64,7 +64,7 @@ TraktorS3.QuickEffectModeChannelColors = false;
 // * Hold shift to move the pitch slider without adjusting the rate
 // * Hold keylock and move the pitch slider to adjust musical pitch
 // * keylock will still toggle on, but on release, not press.
-TraktorS3.PitchSliderRelativeMode = true;
+TraktorS3.PitchSliderRelativeMode = false;
 
 // The Samplers can operate two ways.
 // With SamplerModePressAndHold = false, tapping a Sampler button will start the
@@ -286,21 +286,21 @@ TraktorS3.Controller = class {
             engine.makeConnection(ch, "end_of_track",
                 TraktorS3.Channel.prototype.endOfTrackHandler.bind(chanob));
         }
+        // Set each InputReport to the bitwise inverted state first,
+        // and than apply the non-inverted initial state.
+        // This is done, because the common-hid-packet-parser only triggers
+        // the callback functions in case of a delta to the previous data.
+        for (let inputReportIdx = 0x01; inputReportIdx <= 0x02; ++inputReportIdx) {
+            const reportData = new Uint8Array(controller.getInputReport(inputReportIdx));
 
-        // Query the current values from the controller and set them. The packet
-        // parser ignores the first time a value is set, so we'll need to set it
-        // with different values once. Report 2 contains the state of the mixer
-        // controls.
-        const report2Values = new Uint8Array(controller.getInputReport(2));
-        TraktorS3.incomingData(new Uint8Array([2, ...Uint8Array.from(report2Values.map(x => ~x))]));
-        TraktorS3.incomingData(new Uint8Array([2, ...Uint8Array.from(report2Values)]));
+            TraktorS3.incomingData([inputReportIdx, ...reportData.map(x => ~x)]);
+            TraktorS3.incomingData([inputReportIdx, ...reportData]);
+        }
 
-        // Report 1 is the state of the deck controls. These shouldn't have any
-        // initial effect, and most of these values will be 0 anyways. We'll
-        // just tell the packet parser the current values so it won't ignore the
-        // next input.
-        const report1Values = new Uint8Array(controller.getInputReport(1));
-        TraktorS3.incomingData(new Uint8Array([1, ...Uint8Array.from(report1Values)]));
+        // The controller state may have overridden our preferred default values, so set them now.
+        for (const ch in this.Channels) {
+            TraktorS3.Channel.prototype.setDefaults(ch);
+        }
 
         // NOTE: Soft takeovers must only be enabled after setting the initial
         //       value, or the above line won't have any effect
@@ -1615,6 +1615,17 @@ TraktorS3.Channel = class {
         this.clipConnection = {};
         this.hotcueCallbacks = [];
 
+        // The visual order of the channels in Mixxx is 3, 1, 2, 4, but we want
+        // the crossfader assignments array to match the visual layout
+        const visualChannelIndex = {3: 0, 1: 1, 2: 2, 4: 3}[this.groupNumber];
+        if (TraktorS3.DefaultCrossfaderAssignments[visualChannelIndex] !== null) {
+            // This goes 0-2 for left, right, and center, but having the values
+            // in this script's config be -1, 0, and 1 makes much more sense
+            engine.setValue(group, "orientation", TraktorS3.DefaultCrossfaderAssignments[visualChannelIndex] + 1);
+        }
+    }
+
+    setDefaults(group) {
         // The script by default doesn't change any of the deck's settings, but it's
         // useful to be able to initialize these settings to your preferences when
         // you turn on the controller
@@ -1632,14 +1643,6 @@ TraktorS3.Channel = class {
         }
         if (TraktorS3.DefaultKeylockEnabled !== null) {
             engine.setValue(group, "keylock", TraktorS3.DefaultKeylockEnabled);
-        }
-        // The visual order of the channels in Mixxx is 4, 2, 1, 3, but we want
-        // the crossfader assignments array to match the visual layout
-        const visualChannelIndex = {3: 0, 1: 1, 2: 2, 4: 3}[this.groupNumber];
-        if (TraktorS3.DefaultCrossfaderAssignments[visualChannelIndex] !== null) {
-            // This goes 0-2 for left, right, and center, but having the values
-            // in this script's config be -1, 0, and 1 makes much more sense
-            engine.setValue(group, "orientation", TraktorS3.DefaultCrossfaderAssignments[visualChannelIndex] + 1);
         }
     }
 
@@ -2288,7 +2291,7 @@ TraktorS3.debugLights = function() {
         "00"
     ];
 
-    const data = [Array(), Array(), Array()];
+    const data = [[], [], []];
 
 
     for (let i = 0; i < data.length; i++) {

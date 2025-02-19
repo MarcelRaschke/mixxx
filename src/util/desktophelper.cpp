@@ -8,8 +8,9 @@
 #include <QProcess>
 
 #ifdef Q_OS_LINUX
+#include <QDBusConnection>
+#include <QDBusMessage>
 #include <QFileInfo>
-#include <QtDBus>
 #endif
 
 namespace {
@@ -90,8 +91,8 @@ bool selectInXfce(const QString& path) {
 #endif
 
 void selectViaCommand(const QString& path) {
-#ifdef Q_OS_IOS
-    qWarning() << "Starting process (" << path << ") is not supported on iOS!";
+#if defined(Q_OS_IOS) || defined(Q_OS_WASM)
+    qWarning() << "Starting process (" << path << ") is not supported on iOS or the web!";
 #else
     QStringList arguments = sSelectInFileBrowserCommand.split(" ");
     // No escaping required because QProcess bypasses the shell

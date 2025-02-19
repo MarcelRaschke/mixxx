@@ -2,41 +2,42 @@
 
 #include <QColor>
 
-#include "shaders/rgbashader.h"
-#include "shaders/textureshader.h"
-#include "waveform/renderers/allshader/waveformrendererabstract.h"
+#include "rendergraph/geometrynode.h"
+#include "rendergraph/node.h"
 #include "waveform/renderers/waveformrendermarkbase.h"
 
 class QDomNode;
-class SkinContext;
-class QOpenGLTexture;
+
+namespace rendergraph {
+class GeometryNode;
+class Context;
+} // namespace rendergraph
 
 namespace allshader {
+class DigitsRenderNode;
 class WaveformRenderMark;
-}
+} // namespace allshader
 
 class allshader::WaveformRenderMark : public ::WaveformRenderMarkBase,
-                                      public allshader::WaveformRendererAbstract {
+                                      public rendergraph::Node {
   public:
-    explicit WaveformRenderMark(WaveformWidgetRenderer* waveformWidget);
+    explicit WaveformRenderMark(WaveformWidgetRenderer* waveformWidget,
+            ::WaveformRendererAbstract::PositionSource type =
+                    ::WaveformRendererAbstract::Play);
 
-    void draw(QPainter* painter, QPaintEvent* event) override {
-        Q_UNUSED(painter);
-        Q_UNUSED(event);
-    }
+    // Pure virtual from WaveformRendererAbstract, not used
+    void draw(QPainter* painter, QPaintEvent* event) override final;
 
-    allshader::WaveformRendererAbstract* allshaderWaveformRenderer() override {
-        return this;
-    }
+    bool init() override;
 
-    void initializeGL() override;
-    void paintGL() override;
-    void resizeGL(int w, int h) override;
+    void update();
+
+    bool isSubtreeBlocked() const override;
 
   private:
     void updateMarkImage(WaveformMarkPointer pMark) override;
 
-    void updatePlayPosMarkTexture();
+    void updatePlayPosMarkTexture(rendergraph::Context* pContext);
 
     void drawTriangle(QPainter* painter,
             const QBrush& fillColor,
@@ -44,12 +45,29 @@ class allshader::WaveformRenderMark : public ::WaveformRenderMarkBase,
             QPointF p2,
             QPointF p3);
 
-    mixxx::RGBAShader m_rgbaShader;
-    mixxx::TextureShader m_textureShader;
-    std::unique_ptr<QOpenGLTexture> m_pPlayPosMarkTexture;
+    void updateUntilMark(double playPosition, double markerPosition);
+    void updateDigitsNodeForUntilMark(float x);
+    float getMaxHeightForText(float proportion) const;
+    void updateRangeNode(rendergraph::GeometryNode* pNode,
+            const QRectF& rect,
+            QColor color);
 
-    void drawMark(const QRectF& rect, QColor color);
-    void drawTexture(float x, float y, QOpenGLTexture* texture);
+    int m_beatsUntilMark;
+    double m_timeUntilMark;
+    double m_currentBeatPosition;
+    double m_nextBeatPosition;
+    std::unique_ptr<ControlProxy> m_pTimeRemainingControl;
+
+    bool m_isSlipRenderer;
+
+    rendergraph::Node* m_pRangeNodesParent{};
+    rendergraph::Node* m_pMarkNodesParent{};
+
+    rendergraph::GeometryNode* m_pPlayPosNode;
+    float m_playPosHeight;
+    float m_playPosDevicePixelRatio;
+
+    DigitsRenderNode* m_pDigitsRenderNode{};
 
     DISALLOW_COPY_AND_ASSIGN(WaveformRenderMark);
 };

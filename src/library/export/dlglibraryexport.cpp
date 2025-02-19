@@ -47,11 +47,11 @@ DlgLibraryExport::DlgLibraryExport(
           m_pConfig{pConfig},
           m_pTrackCollectionManager{pTrackCollectionManager} {
     // Selectable list of crates from the Mixxx library.
-    m_pCratesList = make_parented<QListWidget>();
+    m_pCratesList = make_parented<QListWidget>(this);
     m_pCratesList->setSelectionMode(QListWidget::ExtendedSelection);
 
     // Read-only text fields showing key directories for export.
-    m_pExportDirectoryTextField = make_parented<QLineEdit>();
+    m_pExportDirectoryTextField = make_parented<QLineEdit>(this);
     m_pExportDirectoryTextField->setReadOnly(true);
 
     // Remember the last export directory, or use documents as a fallback.
@@ -66,56 +66,56 @@ DlgLibraryExport::DlgLibraryExport(
 
     m_pExportDirectoryTextField->setText(lastExportDirectory);
 
-    m_pVersionCombo = make_parented<QComboBox>();
+    m_pVersionCombo = make_parented<QComboBox>(this);
     m_pVersionCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
 
-    m_pExistingDatabaseLabel = make_parented<QLabel>();
+    m_pExistingDatabaseLabel = make_parented<QLabel>(this);
     m_pExistingDatabaseLabel->setWordWrap(true);
 
     // Radio buttons to allow choice between exporting the whole music library
     // or just tracks in a selection of crates.
-    m_pWholeLibraryRadio = make_parented<QRadioButton>(tr("Entire music library"));
+    m_pWholeLibraryRadio = make_parented<QRadioButton>(tr("Entire music library"), this);
     m_pWholeLibraryRadio->setChecked(true);
     m_pCratesList->setEnabled(false);
     connect(m_pWholeLibraryRadio,
             &QRadioButton::clicked,
             this,
             [this]() { m_pCratesList->setEnabled(false); });
-    m_pCratesRadio = make_parented<QRadioButton>(tr("Selected crates"));
+    m_pCratesRadio = make_parented<QRadioButton>(tr("Selected crates"), this);
     connect(m_pCratesRadio,
             &QRadioButton::clicked,
             this,
             [this]() { m_pCratesList->setEnabled(true); });
 
     // Button to allow ability to browse for the export directory.
-    auto pExportDirBrowseButton = make_parented<QPushButton>(tr("Browse"));
+    auto pExportDirBrowseButton = make_parented<QPushButton>(tr("Browse"), this);
     connect(pExportDirBrowseButton,
             &QPushButton::clicked,
             this,
             &DlgLibraryExport::browseExportDirectory);
-    auto pExportDirLayout = make_parented<QHBoxLayout>();
+    auto pExportDirLayout = make_parented<QHBoxLayout>(this);
     pExportDirLayout->addWidget(m_pExportDirectoryTextField);
     pExportDirLayout->addWidget(pExportDirBrowseButton);
 
-    auto pFormLayout = make_parented<QFormLayout>();
+    auto pFormLayout = make_parented<QFormLayout>(this);
     pFormLayout->addRow(tr("Export directory"), pExportDirLayout);
     pFormLayout->addRow(tr("Database version"), m_pVersionCombo);
     pFormLayout->addRow(m_pExistingDatabaseLabel);
 
     // Buttons to begin the export or cancel.
-    auto pExportButton = make_parented<QPushButton>(tr("Export"));
+    auto pExportButton = make_parented<QPushButton>(tr("Export"), this);
     pExportButton->setDefault(true);
     connect(pExportButton, &QPushButton::clicked, this, &DlgLibraryExport::exportRequested);
-    auto pCancelButton = make_parented<QPushButton>(tr("Cancel"));
+    auto pCancelButton = make_parented<QPushButton>(tr("Cancel"), this);
     connect(pCancelButton, &QPushButton::clicked, this, &QDialog::reject);
 
     // Arrange action buttons at bottom of dialog.
-    auto pButtonBarLayout = make_parented<QHBoxLayout>();
+    auto pButtonBarLayout = make_parented<QHBoxLayout>(this);
     pButtonBarLayout->addStretch(1);
     pButtonBarLayout->addWidget(pExportButton);
     pButtonBarLayout->addWidget(pCancelButton);
 
-    auto pLayout = make_parented<QGridLayout>();
+    auto pLayout = make_parented<QGridLayout>(this);
     pLayout->setColumnStretch(0, 1);
     pLayout->setColumnStretch(1, 2);
     pLayout->addWidget(m_pWholeLibraryRadio, 0, 0);
@@ -197,14 +197,14 @@ void DlgLibraryExport::exportRequested() {
     // Work out what version was requested.
     // If there is an existing database, the version does not matter.
     int versionIndex = m_pVersionCombo->currentData().toInt();
-    e::engine_version exportVersion =
-            versionIndex == -1 ? e::latest_os : e::all_versions[versionIndex];
+    e::engine_schema exportSchemaVersion =
+            versionIndex == -1 ? e::latest_schema : e::supported_schemas[versionIndex];
 
     // Construct a request to export the library/crates.
     auto pRequest = QSharedPointer<EnginePrimeExportRequest>::create();
     pRequest->engineLibraryDbDir.setPath(databaseDirectory);
     pRequest->musicFilesDir.setPath(musicDirectory);
-    pRequest->exportVersion = exportVersion;
+    pRequest->exportSchemaVersion = exportSchemaVersion;
     if (m_pCratesList->isEnabled()) {
         const auto selectedItems = m_pCratesList->selectedItems();
         for (auto* pItem : selectedItems) {
@@ -231,13 +231,13 @@ void DlgLibraryExport::checkExistingDatabase() {
             m_pVersionCombo->clear();
             m_pVersionCombo->setEnabled(true);
             for (int versionIndex = 0;
-                    versionIndex < static_cast<int>(e::all_versions.size());
+                    versionIndex < static_cast<int>(e::supported_schemas.size());
                     ++versionIndex) {
-                e::engine_version version = e::all_versions[versionIndex];
+                e::engine_schema schemaVersion = e::supported_schemas[versionIndex];
                 m_pVersionCombo->insertItem(0,
-                        QString::fromStdString(version.name),
+                        QString::fromStdString(to_application_version_string(schemaVersion)),
                         QVariant{versionIndex});
-                if (version == e::latest_os) {
+                if (schemaVersion == e::latest_schema) {
                     // Latest firmware version is the default selection.
                     m_pVersionCombo->setCurrentIndex(0);
                 }

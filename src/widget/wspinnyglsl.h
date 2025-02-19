@@ -4,6 +4,7 @@
 
 #include "shaders/textureshader.h"
 #include "shaders/vinylqualityshader.h"
+#include "util/opengltexture2d.h"
 #include "widget/wspinnybase.h"
 
 class QOpenGLTexture;
@@ -25,7 +26,7 @@ class WSpinnyGLSL : public WSpinnyBase, private QOpenGLFunctions {
     void initializeGL() override;
     void paintGL() override;
     void resizeGL(int w, int h) override;
-    void drawTexture(QOpenGLTexture* texture);
+    void drawTexture(QOpenGLTexture* pTexture);
     void cleanupGL();
     void updateTextures();
 
@@ -36,11 +37,11 @@ class WSpinnyGLSL : public WSpinnyBase, private QOpenGLFunctions {
 
     mixxx::TextureShader m_textureShader;
     mixxx::VinylQualityShader m_vinylQualityShader;
-    std::unique_ptr<QOpenGLTexture> m_pBgTexture;
-    std::unique_ptr<QOpenGLTexture> m_pMaskTexture;
-    std::unique_ptr<QOpenGLTexture> m_pFgTextureScaled;
-    std::unique_ptr<QOpenGLTexture> m_pGhostTextureScaled;
-    std::unique_ptr<QOpenGLTexture> m_pLoadedCoverTextureScaled;
-    std::unique_ptr<QOpenGLTexture> m_pQTexture;
+    OpenGLTexture2D m_bgTexture;
+    OpenGLTexture2D m_maskTexture;
+    OpenGLTexture2D m_fgTextureScaled;
+    OpenGLTexture2D m_ghostTextureScaled;
+    OpenGLTexture2D m_loadedCoverTextureScaled;
+    OpenGLTexture2D m_qTexture;
     QColor m_vinylQualityColor;
 };

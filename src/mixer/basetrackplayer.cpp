@@ -2,7 +2,9 @@
 
 #include <QMessageBox>
 #include <QMetaMethod>
+#include <memory>
 
+#include "control/controlencoder.h"
 #include "control/controlobject.h"
 #include "engine/channels/enginedeck.h"
 #include "engine/controls/enginecontrol.h"
@@ -51,12 +53,13 @@ BaseTrackPlayerImpl::BaseTrackPlayerImpl(
           m_pPrevFailedTrackId(),
           m_replaygainPending(false),
           m_pChannelToCloneFrom(nullptr) {
-    m_pChannel = new EngineDeck(handleGroup,
+    auto channel = std::make_unique<EngineDeck>(handleGroup,
             pConfig,
             pMixingEngine,
             pEffectsManager,
             defaultOrientation,
             primaryDeck);
+    m_pChannel = channel.get();
 
     m_pInputConfigured = make_parented<ControlProxy>(getGroup(), "input_configured", this);
 #ifdef __VINYLCONTROL__
@@ -66,7 +69,7 @@ BaseTrackPlayerImpl::BaseTrackPlayerImpl(
 #endif
 
     EngineBuffer* pEngineBuffer = m_pChannel->getEngineBuffer();
-    pMixingEngine->addChannel(m_pChannel);
+    pMixingEngine->addChannel(std::move(channel));
 
     // Set the routing option defaults for the main and headphone mixes.
     m_pChannel->setMainMix(defaultMainMix);
@@ -100,10 +103,60 @@ BaseTrackPlayerImpl::BaseTrackPlayerImpl(
     // Track color of the current track
     m_pTrackColor = std::make_unique<ControlObject>(
             ConfigKey(getGroup(), "track_color"));
-
     m_pTrackColor->set(kNoTrackColor);
     m_pTrackColor->connectValueChangeRequest(
             this, &BaseTrackPlayerImpl::slotTrackColorChangeRequest);
+
+    m_pTrackColorPrev = std::make_unique<ControlPushButton>(
+            ConfigKey(getGroup(), "track_color_prev"));
+    connect(m_pTrackColorPrev.get(),
+            &ControlPushButton::valueChanged,
+            this,
+            [this](double value) {
+                if (value > 0) {
+                    BaseTrackPlayerImpl::slotTrackColorSelector(-1);
+                }
+            });
+
+    m_pTrackColorNext = std::make_unique<ControlPushButton>(
+            ConfigKey(getGroup(), "track_color_next"));
+    connect(m_pTrackColorNext.get(),
+            &ControlPushButton::valueChanged,
+            this,
+            [this](double value) {
+                if (value > 0) {
+                    BaseTrackPlayerImpl::slotTrackColorSelector(1);
+                }
+            });
+
+    m_pTrackColorSelect = std::make_unique<ControlEncoder>(
+            ConfigKey(getGroup(), "track_color_selector"), false);
+    connect(m_pTrackColorSelect.get(),
+            &ControlEncoder::valueChanged,
+            this,
+            [this](double steps) {
+                int iSteps = static_cast<int>(steps);
+                BaseTrackPlayerImpl::slotTrackColorSelector(iSteps);
+            });
+
+    m_pStarsUp = std::make_unique<ControlPushButton>(ConfigKey(getGroup(), "stars_up"));
+    connect(m_pStarsUp.get(),
+            &ControlObject::valueChanged,
+            this,
+            [this](double value) {
+                if (value > 0) {
+                    slotTrackRatingChangeRequestRelative(1);
+                }
+            });
+    m_pStarsDown = std::make_unique<ControlPushButton>(ConfigKey(getGroup(), "stars_down"));
+    connect(m_pStarsDown.get(),
+            &ControlObject::valueChanged,
+            this,
+            [this](double value) {
+                if (value > 0) {
+                    slotTrackRatingChangeRequestRelative(-1);
+                }
+            });
 
     // Deck cloning
     m_pCloneFromDeck = std::make_unique<ControlObject>(
@@ -227,6 +280,22 @@ BaseTrackPlayerImpl::BaseTrackPlayerImpl(
             &BaseTrackPlayerImpl::slotUpdateReplayGainFromPregain);
 
     m_ejectTimer.start();
+
+    if (!primaryDeck) {
+        return;
+    }
+
+#ifdef __STEM__
+    m_pStemColors.reserve(mixxx::kMaxSupportedStems);
+    QString group = getGroup();
+    for (int stemIdx = 0; stemIdx < mixxx::kMaxSupportedStems; stemIdx++) {
+        QString stemGroup = EngineDeck::getGroupForStem(group, stemIdx);
+        m_pStemColors.emplace_back(std::make_unique<ControlObject>(
+                ConfigKey(stemGroup, QStringLiteral("color"))));
+        m_pStemColors.back()->set(kNoTrackColor);
+        m_pStemColors.back()->setReadOnly();
+    }
+#endif
 }
 
 BaseTrackPlayerImpl::~BaseTrackPlayerImpl() {
@@ -236,7 +305,7 @@ BaseTrackPlayerImpl::~BaseTrackPlayerImpl() {
 TrackPointer BaseTrackPlayerImpl::loadFakeTrack(bool bPlay, double filebpm) {
     TrackPointer pTrack(Track::newTemporary());
     pTrack->setAudioProperties(
-            mixxx::kEngineChannelCount,
+            mixxx::kEngineChannelOutputCount,
             mixxx::audio::SampleRate(44100),
             mixxx::audio::Bitrate(),
             mixxx::Duration::fromSeconds(10));
@@ -316,6 +385,13 @@ void BaseTrackPlayerImpl::loadTrack(TrackPointer pTrack) {
                 ConfigKey(m_pChannelToCloneFrom->getGroup(), "loop_start_position")));
         m_pLoopOutPoint->set(ControlObject::get(
                 ConfigKey(m_pChannelToCloneFrom->getGroup(), "loop_end_position")));
+
+#ifdef __STEM__
+        auto* pDeckToClone = qobject_cast<EngineDeck*>(m_pChannelToCloneFrom);
+        if (pDeckToClone && m_pLoadedTrack && m_pLoadedTrack->hasStem() && m_pChannel) {
+            m_pChannel->cloneStemState(pDeckToClone);
+        }
+#endif
     }
 
     connectLoadedTrack();
@@ -326,6 +402,12 @@ void BaseTrackPlayerImpl::slotEjectTrack(double v) {
         return;
     }
 
+    // Don't allow eject while playing a track. We don't need to lock to
+    // call ControlObject::get() so this is fine.
+    if (m_pPlay->toBool()) {
+        return;
+    }
+
     mixxx::Duration elapsed = m_ejectTimer.restart();
 
     // Double-click always restores the last replaced track, i.e. un-eject the second
@@ -333,7 +415,11 @@ void BaseTrackPlayerImpl::slotEjectTrack(double v) {
     if (elapsed < mixxx::Duration::fromMillis(kUnreplaceDelay)) {
         TrackPointer lastEjected = m_pPlayerManager->getSecondLastEjectedTrack();
         if (lastEjected) {
-            slotLoadTrack(lastEjected, false);
+            slotLoadTrack(lastEjected,
+#ifdef __STEM__
+                    mixxx::StemChannelSelection(),
+#endif
+                    false);
         }
         return;
     }
@@ -342,16 +428,15 @@ void BaseTrackPlayerImpl::slotEjectTrack(double v) {
     if (!m_pLoadedTrack) {
         TrackPointer lastEjected = m_pPlayerManager->getLastEjectedTrack();
         if (lastEjected) {
-            slotLoadTrack(lastEjected, false);
+            slotLoadTrack(lastEjected,
+#ifdef __STEM__
+                    mixxx::StemChannelSelection(),
+#endif
+                    false);
         }
         return;
     }
 
-    // Don't allow rejections while playing a track. We don't need to lock to
-    // call ControlObject::get() so this is fine.
-    if (m_pPlay->toBool()) {
-        return;
-    }
     m_pChannel->getEngineBuffer()->ejectTrack();
 }
 
@@ -461,7 +546,14 @@ void BaseTrackPlayerImpl::disconnectLoadedTrack() {
     disconnect(m_pLoadedTrack.get(), nullptr, m_pKey.get(), nullptr);
 }
 
-void BaseTrackPlayerImpl::slotLoadTrack(TrackPointer pNewTrack, bool bPlay) {
+#ifdef __STEM__
+void BaseTrackPlayerImpl::slotLoadTrack(TrackPointer pNewTrack,
+        mixxx::StemChannelSelection stemMask,
+        bool bPlay) {
+#else
+void BaseTrackPlayerImpl::slotLoadTrack(TrackPointer pNewTrack,
+        bool bPlay) {
+#endif
     //qDebug() << "BaseTrackPlayerImpl::slotLoadTrack" << getGroup() << pNewTrack.get();
     // Before loading the track, ensure we have access. This uses lazy
     // evaluation to make sure track isn't NULL before we dereference it.
@@ -484,7 +576,17 @@ void BaseTrackPlayerImpl::slotLoadTrack(TrackPointer pNewTrack, bool bPlay) {
 
     // Request a new track from EngineBuffer
     EngineBuffer* pEngineBuffer = m_pChannel->getEngineBuffer();
+#ifdef __STEM__
+    pEngineBuffer->loadTrack(pNewTrack,
+            stemMask,
+            bPlay,
+            m_pChannelToCloneFrom);
+
+    // Select a specific stem if requested
+    emit selectedStems(stemMask);
+#else
     pEngineBuffer->loadTrack(pNewTrack, bPlay, m_pChannelToCloneFrom);
+#endif
 }
 
 void BaseTrackPlayerImpl::slotLoadFailed(TrackPointer pTrack, const QString& reason) {
@@ -613,6 +715,23 @@ void BaseTrackPlayerImpl::slotTrackLoaded(TrackPointer pNewTrack,
             }
         }
 
+#ifdef __STEM__
+        if (m_pStemColors.size()) {
+            const auto& stemInfo = m_pLoadedTrack->getStemInfo();
+            DEBUG_ASSERT(stemInfo.size() <= mixxx::kMaxSupportedStems);
+            int stemIdx = 0;
+            for (const auto& stemColorCo : m_pStemColors) {
+                auto color = kNoTrackColor;
+                if (stemIdx < stemInfo.size()) {
+                    color = trackColorToDouble(mixxx::RgbColor::fromQColor(
+                            stemInfo.at(stemIdx).getColor()));
+                }
+                stemColorCo->forceSet(color);
+                stemIdx++;
+            }
+        }
+#endif
+
         emit newTrackLoaded(m_pLoadedTrack);
         emit trackRatingChanged(m_pLoadedTrack->getRating());
     } else {
@@ -678,7 +797,11 @@ void BaseTrackPlayerImpl::slotCloneChannel(EngineChannel* pChannel) {
 
     m_pChannelToCloneFrom = pChannel;
     bool play = ControlObject::toBool(ConfigKey(m_pChannelToCloneFrom->getGroup(), "play"));
-    slotLoadTrack(pTrack, play);
+    slotLoadTrack(pTrack,
+#ifdef __STEM__
+            mixxx::StemChannelSelection(),
+#endif
+            play);
 }
 
 void BaseTrackPlayerImpl::slotLoadTrackFromDeck(double d) {
@@ -702,7 +825,11 @@ void BaseTrackPlayerImpl::loadTrackFromGroup(const QString& group) {
         return;
     }
 
-    slotLoadTrack(pTrack, false);
+    slotLoadTrack(pTrack,
+#ifdef __STEM__
+            mixxx::StemChannelSelection(),
+#endif
+            false);
 }
 
 bool BaseTrackPlayerImpl::isTrackMenuControlAvailable() {
@@ -736,31 +863,6 @@ void BaseTrackPlayerImpl::slotSetAndConfirmTrackMenuControl(bool visible) {
     m_pShowTrackMenuControl->setAndConfirm(visible ? 1.0 : 0.0);
 }
 
-void BaseTrackPlayerImpl::ensureStarControlsArePrepared() {
-    if (m_pStarsUp == nullptr) {
-        m_pStarsUp = std::make_unique<ControlPushButton>(ConfigKey(getGroup(), "stars_up"));
-        connect(m_pStarsUp.get(),
-                &ControlObject::valueChanged,
-                this,
-                [this](double value) {
-                    if (value > 0) {
-                        emit trackRatingChangeRequest(1);
-                    }
-                });
-    }
-    if (m_pStarsDown == nullptr) {
-        m_pStarsDown = std::make_unique<ControlPushButton>(ConfigKey(getGroup(), "stars_down"));
-        connect(m_pStarsDown.get(),
-                &ControlObject::valueChanged,
-                this,
-                [this](double value) {
-                    if (value > 0) {
-                        emit trackRatingChangeRequest(-1);
-                    }
-                });
-    }
-}
-
 void BaseTrackPlayerImpl::slotSetReplayGain(mixxx::ReplayGain replayGain) {
     // Do not change replay gain when track is playing because
     // this may lead to an unexpected volume change.
@@ -791,6 +893,27 @@ void BaseTrackPlayerImpl::slotSetTrackColor(const mixxx::RgbColor::optional_t& c
     m_pTrackColor->forceSet(trackColorToDouble(color));
 }
 
+void BaseTrackPlayerImpl::slotTrackColorSelector(int steps) {
+    if (!m_pLoadedTrack || steps == 0) {
+        return;
+    }
+
+    ColorPaletteSettings colorPaletteSettings(m_pConfig);
+    ColorPalette colorPalette = colorPaletteSettings.getTrackColorPalette();
+    mixxx::RgbColor::optional_t color = m_pLoadedTrack->getColor();
+
+    while (steps != 0) {
+        if (steps > 0) {
+            color = colorPalette.nextColor(color);
+            steps--;
+        } else {
+            color = colorPalette.previousColor(color);
+            steps++;
+        }
+    }
+    m_pLoadedTrack->setColor(color);
+}
+
 void BaseTrackPlayerImpl::slotTrackColorChangeRequest(double v) {
     if (!m_pLoadedTrack) {
         return;
@@ -804,15 +927,25 @@ void BaseTrackPlayerImpl::slotTrackColorChangeRequest(double v) {
         }
         color = mixxx::RgbColor::optional(colorCode);
     }
-    m_pTrackColor->setAndConfirm(trackColorToDouble(color));
     m_pLoadedTrack->setColor(color);
 }
 
-void BaseTrackPlayerImpl::slotSetTrackRating(int rating) {
+void BaseTrackPlayerImpl::slotTrackRatingChangeRequest(int rating) {
     if (!m_pLoadedTrack) {
         return;
     }
-    m_pLoadedTrack->setRating(rating);
+    if (mixxx::TrackRecord::isValidRating(rating) &&
+            rating != m_pLoadedTrack->getRating()) {
+        m_pLoadedTrack->setRating(rating);
+        emit trackRatingChanged(rating);
+    }
+}
+
+void BaseTrackPlayerImpl::slotTrackRatingChangeRequestRelative(int change) {
+    if (!m_pLoadedTrack) {
+        return;
+    }
+    slotTrackRatingChangeRequest(m_pLoadedTrack->getRating() + change);
 }
 
 void BaseTrackPlayerImpl::slotPlayToggled(double value) {

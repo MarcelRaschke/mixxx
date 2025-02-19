@@ -1,39 +1,43 @@
 #pragma once
 
 #include <QColor>
-#include <QImage>
-#include <memory>
 
-#include "shaders/patternshader.h"
+#include "rendergraph/geometrynode.h"
 #include "util/class.h"
-#include "waveform/renderers/allshader/vertexdata.h"
-#include "waveform/renderers/allshader/waveformrenderer.h"
+#include "waveform/renderers/waveformrendererabstract.h"
 
 class QDomNode;
 class SkinContext;
-class QOpenGLTexture;
 
 namespace allshader {
 class WaveformRendererPreroll;
-}
+} // namespace allshader
 
-class allshader::WaveformRendererPreroll final : public allshader::WaveformRenderer {
+class allshader::WaveformRendererPreroll final
+        : public ::WaveformRendererAbstract,
+          public rendergraph::GeometryNode {
   public:
-    explicit WaveformRendererPreroll(WaveformWidgetRenderer* waveformWidgetRenderer);
+    explicit WaveformRendererPreroll(
+            WaveformWidgetRenderer* waveformWidget,
+            ::WaveformRendererAbstract::PositionSource type =
+                    ::WaveformRendererAbstract::Play);
     ~WaveformRendererPreroll() override;
 
-    void setup(const QDomNode& node, const SkinContext& context) override;
-    void paintGL() override;
-    void initializeGL() override;
+    // Pure virtual from WaveformRendererAbstract, not used
+    void draw(QPainter* painter, QPaintEvent* event) override final;
+
+    void setup(const QDomNode& node, const SkinContext& skinContext) override;
+
+    // Virtual for rendergraph::Node
+    void preprocess() override;
 
   private:
-    void drawPattern(float x1, float y1, float x2, float y2, float repetitions);
-
-    mixxx::PatternShader m_shader;
     QColor m_color;
     float m_markerBreadth{};
     float m_markerLength{};
-    std::unique_ptr<QOpenGLTexture> m_pTexture;
+    bool m_isSlipRenderer;
+
+    bool preprocessInner();
 
     DISALLOW_COPY_AND_ASSIGN(WaveformRendererPreroll);
 };

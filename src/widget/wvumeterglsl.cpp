@@ -6,7 +6,6 @@
 #include "moc_wvumeterglsl.cpp"
 #include "util/duration.h"
 #include "util/math.h"
-#include "util/texture.h"
 
 WVuMeterGLSL::WVuMeterGLSL(QWidget* pParent)
         : WVuMeterBase(pParent) {
@@ -26,9 +25,13 @@ void WVuMeterGLSL::draw() {
 
 void WVuMeterGLSL::initializeGL() {
     initializeOpenGLFunctions();
+    if (m_pPixmapBack) {
+        m_textureBack.setData(*m_pPixmapBack);
+    }
 
-    m_pTextureBack = createTexture(m_pPixmapBack);
-    m_pTextureVu = createTexture(m_pPixmapVu);
+    if (m_pPixmapVu) {
+        m_textureVu.setData(*m_pPixmapVu);
+    }
     m_textureShader.init();
 }
 
@@ -62,17 +65,17 @@ void WVuMeterGLSL::paintGL() {
 
     m_textureShader.setUniformValue(textureLocation, 0);
 
-    if (m_pTextureBack) {
+    if (m_textureBack.isStorageAllocated()) {
         QRectF sourceRect(0, 0, m_pPixmapBack->width(), m_pPixmapBack->height());
-        drawTexture(m_pTextureBack.get(), rect(), sourceRect);
+        drawTexture(&m_textureBack, rect(), sourceRect);
     }
 
     const double widgetWidth = width();
     const double widgetHeight = height();
 
-    if (m_pTextureVu) {
-        const double pixmapWidth = m_pTextureVu->width();
-        const double pixmapHeight = m_pTextureVu->height();
+    if (m_textureVu.isStorageAllocated()) {
+        const double pixmapWidth = m_textureVu.width();
+        const double pixmapHeight = m_textureVu.height();
         if (m_bHorizontal) {
             const double widgetPosition = math_clamp(widgetWidth * m_dParameter, 0.0, widgetWidth);
             QRectF targetRect(0, 0, widgetPosition, math_min(pixmapHeight, widgetHeight));
@@ -80,7 +83,7 @@ void WVuMeterGLSL::paintGL() {
             const double pixmapPosition = math_clamp(
                     pixmapWidth * m_dParameter, 0.0, pixmapWidth);
             QRectF sourceRect(0, 0, pixmapPosition, pixmapHeight);
-            drawTexture(m_pTextureVu.get(), targetRect, sourceRect);
+            drawTexture(&m_textureVu, targetRect, sourceRect);
 
             if (m_iPeakHoldSize > 0 && m_dPeakParameter > 0.0 &&
                     m_dPeakParameter > m_dParameter) {
@@ -102,7 +105,7 @@ void WVuMeterGLSL::paintGL() {
                                 0,
                                 pixmapPeakHoldSize,
                                 pixmapHeight);
-                drawTexture(m_pTextureVu.get(), targetRect, sourceRect);
+                drawTexture(&m_textureVu, targetRect, sourceRect);
             }
         } else {
             // vertical
@@ -113,7 +116,7 @@ void WVuMeterGLSL::paintGL() {
             const double pixmapPosition = math_clamp(
                     pixmapHeight * m_dParameter, 0.0, pixmapHeight);
             QRectF sourceRect(0, pixmapHeight - pixmapPosition, pixmapWidth, pixmapPosition);
-            drawTexture(m_pTextureVu.get(), targetRect, sourceRect);
+            drawTexture(&m_textureVu, targetRect, sourceRect);
 
             if (m_iPeakHoldSize > 0 && m_dPeakParameter > 0.0 &&
                     m_dPeakParameter > m_dParameter) {
@@ -134,7 +137,7 @@ void WVuMeterGLSL::paintGL() {
                         pixmapHeight - pixmapPeakPosition,
                         pixmapWidth,
                         pixmapPeakHoldSize);
-                drawTexture(m_pTextureVu.get(), targetRect, sourceRect);
+                drawTexture(&m_textureVu, targetRect, sourceRect);
             }
         }
     }
@@ -146,20 +149,20 @@ void WVuMeterGLSL::paintGL() {
 
 void WVuMeterGLSL::cleanupGL() {
     makeCurrentIfNeeded();
-    m_pTextureBack.reset();
-    m_pTextureVu.reset();
+    m_textureBack.destroy();
+    m_textureVu.destroy();
     doneCurrent();
 }
 
-void WVuMeterGLSL::drawTexture(QOpenGLTexture* texture,
+void WVuMeterGLSL::drawTexture(QOpenGLTexture* pTexture,
         const QRectF& targetRect,
         const QRectF& sourceRect) {
-    const float texx1 = static_cast<float>(sourceRect.x() / texture->width());
-    const float texy1 = static_cast<float>(sourceRect.y() / texture->height());
+    const float texx1 = static_cast<float>(sourceRect.x() / pTexture->width());
+    const float texy1 = static_cast<float>(sourceRect.y() / pTexture->height());
     const float texx2 = static_cast<float>(
-            (sourceRect.x() + sourceRect.width()) / texture->width());
+            (sourceRect.x() + sourceRect.width()) / pTexture->width());
     const float texy2 = static_cast<float>(
-            (sourceRect.y() + sourceRect.height()) / texture->height());
+            (sourceRect.y() + sourceRect.height()) / pTexture->height());
 
     const float posx1 = static_cast<float>(targetRect.x());
     const float posy1 = static_cast<float>(targetRect.y());
@@ -177,9 +180,9 @@ void WVuMeterGLSL::drawTexture(QOpenGLTexture* texture,
     m_textureShader.setAttributeArray(
             texcoordLocation, GL_FLOAT, texarray.data(), 2);
 
-    texture->bind();
+    pTexture->bind();
 
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-    texture->release();
+    pTexture->release();
 }

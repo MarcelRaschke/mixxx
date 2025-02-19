@@ -58,6 +58,7 @@
               <WidgetGroup>
                 <Size>35f,24f</Size>
                 <Children>
+                  <!-- invisible Tempo/BPM tap button on top of BPM display -->
                   <Number>
                     <TooltipId>visual_bpm</TooltipId>
                     <Style>QLabel {
@@ -77,15 +78,8 @@
                       <ConfigKey><Variable name="group"/>,visual_bpm</ConfigKey>
                     </Connection>
                   </Number>
-                  <!-- Little trickery here:
-                    BPM tap is transparent png directly over BPM display, so it became BPM and TAP at once,
-                    changed tooltip accordingly
-                  -->
                   <PushButton>
-                  <!-- Original:
-                    <TooltipId>bpm_tap</TooltipId>
-                  -->
-                    <TooltipId>bpm_tap_visual_bpm</TooltipId>
+                    <TooltipId>tempo_tap_bpm_tap_visual_bpm</TooltipId>
                     <Pos>0,5</Pos>
                     <NumberStates>1</NumberStates>
                     <State>
@@ -94,8 +88,11 @@
                       <Unpressed>skin:/btn/btn_tap_sampler.png</Unpressed>
                     </State>
                     <Connection>
+                      <ConfigKey><Variable name="group"/>,tempo_tap</ConfigKey>
+                    </Connection>
+                    <Connection>
                       <ConfigKey><Variable name="group"/>,bpm_tap</ConfigKey>
-                      <EmitOnPressAndRelease>true</EmitOnPressAndRelease>
+                      <ButtonState>RightButton</ButtonState>
                     </Connection>
                   </PushButton>
                 </Children>
@@ -134,8 +131,9 @@
                     </Connection>
                   </PushButton>
                   <!-- Play -->
-                  <PushButton>
+                  <PlayButton>
                     <TooltipId>cue_gotoandplay_cue_default</TooltipId>
+                    <Group><Variable name="group"/></Group>
                     <Pos>3,7</Pos>
                     <NumberStates>2</NumberStates>
                     <RightClickIsPushButton>true</RightClickIsPushButton>
@@ -159,7 +157,7 @@
                     <Connection>
                       <ConfigKey><Variable name="group"/>,play_latched</ConfigKey>
                     </Connection>
-                  </PushButton>
+                  </PlayButton>
                 </Children>
               </WidgetGroup>
 

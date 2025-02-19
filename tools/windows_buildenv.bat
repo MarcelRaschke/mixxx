@@ -24,13 +24,13 @@ IF DEFINED BUILDENV_RELEASE (
     SET BUILDENV_BRANCH=2.5-rel
     SET VCPKG_TARGET_TRIPLET=x64-windows-release
     vcpkg_update_main
-    SET BUILDENV_NAME=mixxx-deps-2.5-x64-windows-release-bea61fb
-    SET BUILDENV_SHA256=b7a5d8bda8f45d5d7760f872096850fa2583ddc4535ae5505b0aaa7d5a8f0cb0
+    SET BUILDENV_NAME=mixxx-deps-2.5-x64-windows-release-40c29ff
+    SET BUILDENV_SHA256=a9d809ae9c52d8a553af1bb8a58565649ced7b1f938d1d37c1c7d83ad53aacf3
 ) ELSE (
     SET BUILDENV_BRANCH=2.5
     SET VCPKG_TARGET_TRIPLET=x64-windows
-    SET BUILDENV_NAME=mixxx-deps-2.5-x64-windows-5d58718
-    SET BUILDENV_SHA256=e7f07aefa6d78259c6e92540c7fa76246a7fa600b76143579f10a29d7b3e7d81
+    SET BUILDENV_NAME=mixxx-deps-2.5-x64-windows-c15790e
+    SET BUILDENV_SHA256=138e4685ec73c6a6a509f71f8573be581403b091e4ecea2314df2cc79f9720b9
 )
 
 IF "%~1"=="" (
@@ -213,7 +213,7 @@ REM Generate CMakeSettings.json which is read by MS Visual Studio to determine t
     CALL :AddCMakeVar2CMakeSettings_JSON "MIXXX_VCPKG_ROOT"                   "STRING"   "!MIXXX_VCPKG_ROOT:\=\\!"
     CALL :AddCMakeVar2CMakeSettings_JSON "BATTERY"                            "BOOL"   "True"
     CALL :AddCMakeVar2CMakeSettings_JSON "BROADCAST"                          "BOOL"   "True"
-    CALL :AddCMakeVar2CMakeSettings_JSON "BULK"                               "BOOL"   "False"
+    CALL :AddCMakeVar2CMakeSettings_JSON "BULK"                               "BOOL"   "True"
     CALL :AddCMakeVar2CMakeSettings_JSON "CMAKE_EXPORT_COMPILE_COMMANDS"      "BOOL"   "True"
     REM Replace all \ by \\ in CMAKE_PREFIX_PATH
     REM CALL :AddCMakeVar2CMakeSettings_JSON "CMAKE_PREFIX_PATH"                  "STRING"   "!CMAKE_PREFIX_PATH:\=\\!"
